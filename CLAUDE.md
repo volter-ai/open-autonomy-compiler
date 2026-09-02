@@ -101,7 +101,7 @@ fast (stronger than last-gen frontier), so fix the prompt/tool, never route arou
 - **`bin/`** — `autonomy-compile.ts`, `check-dogfood.ts`, `sync-runtime.ts`, `autonomy-upgrade.ts`,
   `autonomy-conformance.ts`, `bench.ts`.
 
-### `services/agent-model-proxy/` — the Cloudflare Worker (repo-owned; edit directly, NOT dogfood-managed)
+### The model proxy — lives in `volter-ai/open-autonomy` (the platform repo), not here
 
 The **OA treasury** (`@open-autonomy/treasury`): the economy layer that **gates all agent model spend**,
 holds the funding-account tree, exposes the **generic supplier API** (registry + itemized consume +

@@ -5,7 +5,7 @@
 // Today's TWO shipped proxies are both weaker than that definition:
 //   - `scripts/reconcile-merged-issues.ts:25-29` closes an issue on ANY merged PR whose branch is
 //     `agent/issue-<n>` — a docs-only PR qualifies, no gate check, no linkage check at all.
-//   - `services/agent-model-proxy/src/github-sync.ts:111-124`'s `roadmap:<id>` rollup counts ANY CLOSED
+//   - `volter-ai/open-autonomy (the platform repo)src/github-sync.ts:111-124`'s `roadmap:<id>` rollup counts ANY CLOSED
 //     roadmap issue as `done` — an issue closed by hand (no merged PR behind it at all — the "roadmap
 //     reconciliation" administrative close this repo's own history contains several of) increments it too.
 //
@@ -303,7 +303,7 @@ async function evaluateGhIssue(repo: string, issueNumber: string, facts: PackFac
   if (!pr) {
     return {
       present: false,
-      evidence: `#${issueNumber}: closed, but no merged PR was found closing it (checked branch agent/issue-${issueNumber} + the reconcile sweep's 'Resolved by #' comment marker) — this is the exact weak-proxy failure mode (services/agent-model-proxy/src/github-sync.ts:111-124 would still count this closed issue as "done")`,
+      evidence: `#${issueNumber}: closed, but no merged PR was found closing it (checked branch agent/issue-${issueNumber} + the reconcile sweep's 'Resolved by #' comment marker) — this is the exact weak-proxy failure mode (volter-ai/open-autonomy (the platform repo)src/github-sync.ts:111-124 would still count this closed issue as "done")`,
     };
   }
 

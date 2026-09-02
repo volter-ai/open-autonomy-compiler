@@ -21,7 +21,7 @@ Include: the affected component, reproduction steps, impact, and any proof-of-co
   escalation, any path that lets an agent merge or land unreviewed code (defeating the
   `code:review`/`code:propose` permission split or branch protection), secret/token exfiltration, and
   `pull_request_target` / fork escalation in the workflows.
-- The model-token / funding proxy (`services/agent-model-proxy`): auth bypass, minting tokens beyond
+- The model-token / funding proxy (`volter-ai/open-autonomy (the platform repo)`): auth bypass, minting tokens beyond
   their bounds, spend-cap bypass, fund manipulation, webhook-signature bypass, storefront injection.
 
 **Out of scope**
@@ -34,7 +34,7 @@ Include: the affected component, reproduction steps, impact, and any proof-of-co
 The intended trust boundaries are documented in `docs/SPEC.md#capabilities` (agents act with
 capability-scoped tokens; the merge boundary is the `code:review`/`code:propose` split + native
 auto-merge — no agent can merge) and the proxy's abuse/spend model in
-`services/agent-model-proxy/README.md`. Reports that violate those boundaries are especially valuable.
+`volter-ai/open-autonomy (the platform repo)README.md`. Reports that violate those boundaries are especially valuable.
 
 ## Operating it yourself
 

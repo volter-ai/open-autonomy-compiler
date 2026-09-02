@@ -25,7 +25,6 @@ bun run check:public-agent
 For model-proxy changes:
 
 ```bash
-bun run check:agent-proxy
 ```
 
 Run the full local gate before pushing:

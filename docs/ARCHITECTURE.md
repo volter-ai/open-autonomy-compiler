@@ -158,7 +158,7 @@ open-autonomy/                  # the substrate-agnostic autonomy system (also d
 ├── bin/                        # CLIs: autonomy-compile, autonomy-conformance, sync-runtime, bench, check-dogfood
 ├── profiles/                   # profiles (recipes): self-driving (the dogfood org) + examples; compile to ANY substrate
 ├── bench/                      # the one live-eval harness (workloads + graders); proves behavior live
-├── services/agent-model-proxy/ # the github-substrate model proxy + funding storefront (repo-owned)
+├── volter-ai/open-autonomy (the platform repo) # the github-substrate model proxy + funding storefront (repo-owned)
 ├── docs/                       # SPEC.md (the standard) + this map + VISION/CONSTITUTION/ROADMAP/OPERATIONS/standards
 └── .open-autonomy/ .github/    # open-autonomy's own installation (dogfood)
 ```

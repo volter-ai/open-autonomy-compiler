@@ -25,7 +25,6 @@ import { join } from 'node:path';
 const SRC = 'scripts';
 const DEST = 'packages/substrate-github/src/runtime';
 const DEV_ONLY = new Set([
-  'fund-bootstrap.ts',
   'open-autonomy-proof-audit.ts', 'open-autonomy-proof-audit.test.ts',
   'provision-target-repo.ts', 'provision-target-repo.test.ts',
   // Deploy-boundary provisioning: reconciles the production environment + admin-only deploy-tag ruleset
@@ -45,7 +44,6 @@ const DEV_ONLY = new Set([
   // install — dev-only release tooling, never shipped into an install.
   'pack-smoke.ts',
   // Operator treasury tooling: rotates the proxy admin token (worker secret + local .env) — dev-only.
-  'rotate-admin-token.ts',
 ]);
 const PROFILE_OWNED = new Set([
   // self-driving's OWN governance/preflight/upgrade tooling — profile content, shipped via the profile's

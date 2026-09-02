@@ -80,7 +80,7 @@ provisions, seeds, and starts the run — each step idempotent:
    (`MODEL_PROXY_ADMIN_TOKEN` in `.env`, used to fund the repo's account — never
    set as a repo secret); the proxy must already trust the repo's agent
    workflows for OIDC (`GITHUB_OIDC_ALLOWED_WORKFLOW` in
-   `services/agent-model-proxy/wrangler.toml` — emitted workflows are
+   `volter-ai/open-autonomy (the platform repo)wrangler.toml` — emitted workflows are
    per-agent: `developer.yml`, `pm.yml`, …; a `<owner>/<repo>/*` entry covers
    them all).
 3. set the PM cron to a fast cadence (`*/5 * * * *`) so a 60 minute session

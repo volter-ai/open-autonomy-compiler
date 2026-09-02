@@ -52,7 +52,7 @@ maturity_signals:
                                # a first workflow run instead (ir.yml's own note + DESIGN §Q1)
   m4_predicate: gh-issues
   m6_signal: roadmap-rollup   # the roadmap:<id> rollup increments via a human-approved, gated merge
-                               # (services/agent-model-proxy/src/github-sync.ts)
+                               # (volter-ai/open-autonomy (the platform repo)src/github-sync.ts)
 
 # extra_rungs: self-driving carries rungs no other profile has — a funded, OIDC-allowlisted model proxy
 # (M3.p), filled direction docs with no REPLACE-THIS markers left (M4.d), and a provisioned `maintainer`

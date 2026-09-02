@@ -217,7 +217,7 @@ export async function buildAuthorizeBatch(sel: SelectionRecordRef, profileDir: s
       text:
         'self-driving needs a funded, allowlisted model proxy for the hosted fleet to spend at all. Deploy ' +
         'your own model-proxy Worker, or get allowlisted on an existing one?',
-      default: 'deploy your own (see services/agent-model-proxy/)',
+      default: 'deploy your own (see volter-ai/open-autonomy (the platform repo))',
     });
   }
 
