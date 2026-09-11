@@ -666,7 +666,7 @@ const activeSessionCount = (env) => {
       (session.status === 'running' || session.status === 'paused' || session.status === 'awaiting-human')).length;
   } catch { return null; }
 };
-const fireJobs = (dueJobs, { triggerKind = 'cron', reportSkips = false } = {}) => {
+const fireJobs = (dueJobs, { onAttemptStarted = () => {}, onAttemptResult = () => {}, triggerKind = 'cron', reportSkips = false } = {}) => {
   if (managedProvider) {
     if (!managedProviderFresh && !ensureOwnedProvider()) {
       const skipped = dueJobs.map((job) => ({ job, reason: 'managed provider unavailable' }));
@@ -698,8 +698,10 @@ const fireJobs = (dueJobs, { triggerKind = 'cron', reportSkips = false } = {}) =
       skipped.push({ job, reason: 'maxConcurrent ' + maxConcurrent + ' is already reached' });
       continue;
     }
+    onAttemptStarted(job, Date.now());
     const result = spawnSync(job.command, { shell: true, stdio: 'inherit', env });
     if (job.agent && result.status === 0 && !result.error) active += 1;
+    onAttemptResult(job, result, Date.now());
     results.push({ job, result });
   }
   if (reportSkips) {
@@ -724,7 +726,61 @@ if (once) {
 // Continuous mode: a foreground heartbeat that fires due jobs and reconciles completion state. Session
 // retirement is deliberately absent; it is an explicit supervising-agent action, never a scheduler timer.
 const POLL_MS = Math.max(1000, Number(process.env.AUTONOMY_REAP_POLL_MS ?? 20000));
-const nextFireAt = new Map(jobs.map((job) => [job.name, 0]));
+const SCHEDULE_STATE = process.env.AUTONOMY_SCHEDULE_STATE
+  || join(here, '..', '.open-autonomy', 'runner-state', 'schedule-state.json');
+function loadScheduleState(path) {
+  if (!existsSync(path)) return { schema: 'open-autonomy.schedule-state.v1', jobs: {} };
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    throw new Error(\`[loop] refusing to launch with unreadable cadence state \${path}: \${error?.message ?? error}\`);
+  }
+  if (parsed?.schema !== 'open-autonomy.schedule-state.v1' || !parsed.jobs || typeof parsed.jobs !== 'object' || Array.isArray(parsed.jobs)) {
+    throw new Error(\`[loop] refusing to launch with invalid cadence state \${path}\`);
+  }
+  for (const [name, record] of Object.entries(parsed.jobs)) {
+    if (!record || !Number.isFinite(record.nextFireAtMs) || !Number.isFinite(record.lastAttemptAtMs)) {
+      throw new Error(\`[loop] refusing to launch with invalid cadence record for \${name}\`);
+    }
+  }
+  return parsed;
+}
+function writeScheduleState(path, state) {
+  mkdirSync(dirname(path), { recursive: true });
+  const temporary = \`\${path}.tmp-\${process.pid}\`;
+  writeFileSync(temporary, \`\${JSON.stringify(state, null, 2)}\\n\`);
+  renameSync(temporary, path);
+}
+const scheduleState = loadScheduleState(SCHEDULE_STATE);
+const nextFireAt = new Map(jobs.map((job) => [
+  job.name,
+  scheduleState.jobs[job.name]?.nextFireAtMs ?? 0,
+]));
+const recordScheduleDeadline = (job, nowMs, seconds, outcome) => {
+  const nextFireAtMs = nowMs + seconds * 1000;
+  scheduleState.jobs[job.name] = {
+    lastAttemptAtMs: nowMs,
+    nextFireAtMs,
+    outcome,
+  };
+  writeScheduleState(SCHEDULE_STATE, scheduleState);
+  nextFireAt.set(job.name, nextFireAtMs);
+};
+const recordAttemptStarted = (job, nowMs) => {
+  const retry = Number(job.retrySeconds || job.intervalSeconds || schedule.intervalSeconds || 900);
+  // Persist before spawn. A crash after this point restarts at the retry
+  // deadline instead of immediately duplicating the just-started job.
+  recordScheduleDeadline(job, nowMs, retry, 'started');
+};
+const recordAttemptResult = (job, result, nowMs) => {
+  const success = result.status === 0 && !result.error;
+  const seconds = success
+    ? Number(job.intervalSeconds || schedule.intervalSeconds || 900)
+    : Number(job.retrySeconds || job.intervalSeconds || schedule.intervalSeconds || 900);
+  recordScheduleDeadline(job, nowMs, seconds, success ? 'succeeded' : 'failed');
+};
+
 let runner = null;
 try {
   ({ runner } = await import(join(here, '..', 'scripts', 'autonomy-runner.mjs')).then((m) => ({ runner: new m.TermfleetRunner() })));
@@ -823,12 +879,7 @@ while (true) {
   if (removedFences.length) console.error('[loop] unpaused jobs fenced by: ' + removedFences.join(', '));
   lastBlockedFences = currentBlockedFences;
   const due = jobs.filter((job) => now >= (nextFireAt.get(job.name) || 0));
-  for (const { job, result } of fireJobs(due).results) {
-    const seconds = result.status === 0 && !result.error
-      ? Number(job.intervalSeconds || schedule.intervalSeconds || 900)
-      : Number(job.retrySeconds || job.intervalSeconds || schedule.intervalSeconds || 900);
-    nextFireAt.set(job.name, Date.now() + seconds * 1000);
-  }
+  fireJobs(due, { onAttemptStarted: recordAttemptStarted, onAttemptResult: recordAttemptResult });
   if (runner) {
     try {
       await reconcilePendingEffects(runner); // explicitly retired proposers' effects (the post-skill step's local twin)
@@ -913,15 +964,7 @@ if (process.env.AUTONOMY_SINGLETON) {
   const all = parseLastJsonLine(listed.stdout);
   if (!Array.isArray(all)) throw new Error(\`[run-agent] could not read runner sessions for singleton "\${agent}"\`);
   const matching = all.filter((session) => session.agent === agent);
-  if (!canonical && matching.length === 1 && matching[0].ref) {
-    const now = new Date().toISOString();
-    canonical = {
-      schema: 'open-autonomy.agent-singleton.v1', agent, harness, cwd: process.cwd(),
-      terminalId: matching[0].id, agentSessionId: matching[0].ref,
-      createdAt: now, updatedAt: now, adopted: true,
-    };
-    writeSingleton(path, canonical);
-  } else if (!canonical && matching.length > 0) {
+  if (!canonical && matching.length > 0) {
     console.error(\`[run-agent] singleton "\${agent}" has \${matching.length} existing conversations and no canonical identity; refusing to guess. Adopt one explicitly in \${path}.\`);
     process.exit(1);
   }
@@ -930,6 +973,7 @@ if (process.env.AUTONOMY_SINGLETON) {
       session.id === canonical.terminalId || (canonical.agentSessionId && session.ref === canonical.agentSessionId));
     if (live && (live.status === 'running' || live.status === 'paused' || live.status === 'awaiting-human')) {
       console.log(\`[run-agent] singleton "\${agent}" is already active as \${canonical.agentSessionId}; skipping this tick\`);
+      console.log(JSON.stringify({ id: live.id, ref: canonical.agentSessionId, agent, status: live.status }));
       process.exit(0);
     }
     const setupEnv = {
@@ -958,6 +1002,7 @@ if (process.env.AUTONOMY_SINGLETON) {
       ...canonical, terminalId: result.terminalId, agentSessionId: result.agentSessionId,
       updatedAt: new Date().toISOString(), lastMode: result.mode,
     });
+    console.log(JSON.stringify({ id: result.terminalId, ref: result.agentSessionId, agent, status: 'running' }));
     process.exit(0);
   }
 }

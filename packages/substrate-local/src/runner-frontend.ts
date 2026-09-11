@@ -734,6 +734,12 @@ async function defaultHarness(): Promise<string> {
 /** Launch an agent with forwarded params (agent:launch). Resolves to the launch's exit code; the pre-check
  *  refusal (and the pause gate, OA-07) throw instead — see runCli, which maps both to a nonzero exit. */
 export async function launch(agent: string, params: LaunchParams = {}): Promise<number> {
+  const unlock = process.env.AUTONOMY_SINGLETON
+    ? workspaceLock(installRoot(), join(installRoot(), '.open-autonomy', 'singletons', agent)) : () => {};
+  try { return await launchLocked(agent, params); } finally { unlock(); }
+}
+
+async function launchLocked(agent: string, params: LaunchParams): Promise<number> {
   const { kind, skill: behavior = '', params: declared = {}, review = '', prelaunch = '', execution } = manifestAgent(agent);
   const codeHost = manifestCodeHost();
   const generation = activeControlGeneration(codeHost);
@@ -771,8 +777,28 @@ export async function launch(agent: string, params: LaunchParams = {}): Promise<
   const requestedWorkspace = params.workspace ?? execution?.workspace ?? 'shared';
   if (requestedWorkspace !== 'shared' && requestedWorkspace !== 'isolated')
     throw new Error(`[runner] invalid workspace mode "${requestedWorkspace}" (expected "shared" or "isolated")`);
-  const branch = explicitBranch || (requestedWorkspace === 'isolated' ? isolationBranch(agent) : '');
-  const worktree = branch ? worktreePathFor(branch) : '';
+  let singletonFile = '', singletonSnapshot = '';
+  let singletonLease: ReturnType<typeof prepareWorkspace> | undefined;
+  if (process.env.AUTONOMY_SINGLETON && requestedWorkspace === 'isolated') {
+    const singleton = join(installRoot(), '.open-autonomy', 'runner-state', 'singletons', `${agent.replace(/[^0-9A-Za-z._-]/g, '-')}.json`);
+    const records = workspaceRecords(installRoot());
+    if (records.some(record => !record.lease)) throw new Error('Unknown workspace ownership; recover it before a singleton tick');
+    if (existsSync(singleton)) {
+      singletonFile = singleton; singletonSnapshot = readFileSync(singleton, 'utf8');
+      const canonical = JSON.parse(singletonSnapshot);
+      if (canonical.schema !== 'open-autonomy.agent-singleton.v1' || canonical.agent !== agent || typeof canonical.cwd !== 'string')
+        throw new Error('Invalid singleton workspace identity; refusing a replacement');
+      const owners = records.filter(record => record.category === 'workspaces' && record.lease?.agent === agent && record.lease.worktree === canonical.cwd);
+      if (owners.length !== 1 || owners[0]!.lease!.schema !== 'open-autonomy.workspace-lease.v2' || owners[0]!.lease!.state !== 'active')
+        throw new Error('Singleton workspace needs owner recovery; refusing a replacement');
+      singletonLease = owners[0]!.lease!;
+      if (explicitBranch && explicitBranch !== singletonLease.branch) throw new Error('Singleton branch conflicts with canonical workspace');
+    } else if (records.some(record => record.lease?.agent === agent)) {
+      throw new Error('Singleton has unresolved workspace ownership; refusing another checkout');
+    }
+  }
+  const branch = singletonLease?.branch || explicitBranch || (requestedWorkspace === 'isolated' ? isolationBranch(agent) : '');
+  const worktree = singletonLease?.worktree || (branch ? worktreePathFor(branch) : '');
   // Read the declared code host ONCE per launch and reuse it for both decisions it gates: the worktree base
   // (below) and the post-session propose effect (below, at the github-only branch).
   // `ensureWorktree` returns 'existing' when the branch already had a worktree (idempotent reuse), otherwise
@@ -781,11 +807,18 @@ export async function launch(agent: string, params: LaunchParams = {}): Promise<
   // in-progress rework worktree a reviewer sent back).
   const unlockWorkspace = worktree ? workspaceLock(installRoot(), worktree) : () => {};
   try {
-  let workspaceLease = worktree ? prepareWorkspace(installRoot(), worktree, agent, branch) : undefined;
+  if (singletonLease) {
+    if (readFileSync(singletonFile, 'utf8') !== singletonSnapshot) throw new Error('Singleton identity changed while waiting; refusing to guess');
+    const current = workspaceRecords(installRoot()).find(record => record.category === 'workspaces' && record.lease?.id === singletonLease!.id)?.lease;
+    if (!current || current.state !== 'active' || current.worktree !== worktree || current.branch !== branch)
+      throw new Error('Singleton workspace was released or replaced while waiting; retain it for owner recovery');
+    singletonLease = current;
+  }
+  let workspaceLease = singletonLease ?? (worktree ? prepareWorkspace(installRoot(), worktree, agent, branch) : undefined);
   const createdBranchThisCall = !!branch && git(['show-ref', '--verify', `refs/heads/${branch}`]).status !== 0;
-  const worktreeStatus = branch ? ensureWorktree(branch, worktree, codeHost, generation?.sha) : '';
+  const worktreeStatus = singletonLease ? 'existing' : branch ? ensureWorktree(branch, worktree, codeHost, generation?.sha) : '';
   const createdWorktreeThisCall = !!branch && worktreeStatus !== 'existing';
-  if (workspaceLease) workspaceLease = bindWorkspace(installRoot(), workspaceLease, '');
+  if (workspaceLease) workspaceLease = bindWorkspace(installRoot(), workspaceLease, singletonLease?.sessionId ?? '');
 
   // OA-08 pre-check: does this launch's skill invocation resolve to the SAME doctrine selected by the
   // control checkout? Existence applies with or without a branch. Content parity applies to anonymous
@@ -814,7 +847,7 @@ export async function launch(agent: string, params: LaunchParams = {}): Promise<
     // the now-fixed trunk and resolves. Scoped to `createdWorktreeThisCall` so a pre-existing (rework)
     // worktree is never destroyed. Paths are constructed (worktreePathFor → resolve; a validated non-empty
     // branch) — never an unguarded removal of an empty variable.
-    if (workspaceLease) discardUnlaunchedWorkspace(installRoot(), workspaceLease, createdWorktreeThisCall, createdBranchThisCall);
+    if (workspaceLease && !singletonLease) discardUnlaunchedWorkspace(installRoot(), workspaceLease, createdWorktreeThisCall, createdBranchThisCall);
     const message = missing
       ? `[runner] launch refused: ${agent}'s skill "${behavior}" is missing at\n` +
         `  ${skillPath} — the session would die at launch ("Unknown command: /${behavior}").\n` +
@@ -851,7 +884,7 @@ export async function launch(agent: string, params: LaunchParams = {}): Promise<
   // run it. `shell: true` because the declared value is a shell command string, not an argv array; a
   // nonzero exit is logged but never refuses the launch — a prelaunch is a best-effort arm, not a gate on
   // whether the session itself gets to run.
-  if (prelaunch) {
+  if (prelaunch && !singletonLease) {
     const r = spawnSync(prelaunch, { shell: true, stdio: 'inherit', env, cwd });
     if (r.status !== 0) {
       console.error(`[runner] ${agent}: prelaunch "${prelaunch}" exited ${r.status ?? '(signal)'} — continuing anyway (best-effort arm)`);
@@ -865,6 +898,7 @@ export async function launch(agent: string, params: LaunchParams = {}): Promise<
   // learn the session's terminalId (the join key the reaper reports back); every other launch (the PM, the
   // drafter, a local-git worker, the reviewer) stays live (stdio inherit).
   if (worktree) {
+    if (singletonLease && workspaceLease) workspaceLease = bindWorkspace(installRoot(), workspaceLease, '');
     const r = spawnSync('node', [join(scriptsDir, 'run-agent.mjs')], { encoding: 'utf8', env, cwd: worktree });
     if (r.stdout) process.stdout.write(r.stdout);
     if (r.stderr) process.stderr.write(r.stderr);
@@ -890,6 +924,7 @@ export async function launch(agent: string, params: LaunchParams = {}): Promise<
             // worker committed onto (`agent/issue-<n>`); the rest mirror github's propose-step env.
             ISSUE_REF: /agent\/issue-(\d+)/.exec(branch)?.[1] ?? '',
             AGENT_NAME: agent,
+            AUTONOMY_SESSION_ID: id,
             AGENT_BOT_NAME: process.env.AGENT_BOT_NAME ?? 'open-autonomy-agent',
             AGENT_BOT_EMAIL: process.env.AGENT_BOT_EMAIL ?? 'open-autonomy-agent@users.noreply.github.com',
             REVIEW_AGENT: review,

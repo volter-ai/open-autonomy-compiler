@@ -1,8 +1,8 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, realpathSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import type { AutonomyIR } from '@open-autonomy/core';
 import { compileLocal } from './emit';
 
@@ -17,8 +17,12 @@ const ir: AutonomyIR = {
   resources: [],
 };
 
+const roots: string[] = [];
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+
 function fixture(responses: Record<string, unknown>) {
-  const root = mkdtempSync(join(tmpdir(), 'oa-singleton-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'oa-singleton-')));
+  roots.push(root);
   const generated = compileLocal(ir).generated;
   mkdirSync(join(root, 'scripts', 'prompts', 'claude'), { recursive: true });
   mkdirSync(join(root, '.claude', 'skills', 'pm'), { recursive: true });
@@ -146,4 +150,41 @@ describe('emitted scheduled durable singleton', () => {
     expect(second.stderr).toContain('refusing to launch a replacement');
     expect(calls(root).map(({ command }) => command)).toEqual(['list', 'launch', 'list', 'continue']);
   });
+});
+
+
+test('full emitted runner reuses one workspace and lease for first launch, active skip and resumed tick', () => {
+  const root = fixture({
+    list: { next: [[], [{ id: 'terminal-1', ref: 'claude:session-1', agent: 'pm', status: 'running' }], []] },
+    launch: { value: { id: 'terminal-1', ref: 'claude:session-1', agent: 'pm', status: 'running' } },
+    continue: { value: { terminalId: 'terminal-2', agentSessionId: 'claude:session-1', mode: 'resumed' } },
+  });
+  const out = compileLocal({ ...ir, codeHost: 'local-git' }).generated;
+  for (const [path, text] of Object.entries(out)) {
+    if (['scripts/autonomy-runner.mjs', 'scripts/runner-defaults.mjs'].includes(path)) continue;
+    mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), text);
+  }
+  rmSync(join(root, '.open-autonomy', 'paused'), { force: true });
+  writeFileSync(join(root, '.gitignore'), '.worktrees/\n.open-autonomy/runner-state/\ncalls.jsonl\nresponses.json\n');
+  const git = (...args: string[]) => { const r = spawnSync('git', args, { cwd: root, encoding: 'utf8' }); expect(r.status, r.stderr).toBe(0); return r.stdout.trim(); };
+  git('init', '-q', '-b', 'main'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid'); git('add', '.'); git('commit', '-qm', 'accepted fixture');
+  const run = () => spawnSync('bun', ['scripts/runner.ts', 'launch', 'pm', '--workspace', 'isolated'], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, AUTONOMY_CONTROL_ROOT: root, AUTONOMY_SINGLETON: '1', TERMFLEET_AGENT: 'claude', TERMFLEET_LAUNCH_TIMEOUT_MS: '1000' },
+  });
+  let path = ''; let leaseId = '';
+  for (let tick = 0; tick < 3; tick++) {
+    const r = run(); expect(r.status, r.stderr + r.stdout).toBe(0);
+    const canonical = receipt(root);
+    if (!path) path = canonical.cwd;
+    expect(canonical.cwd).toBe(path);
+    expect(git('worktree', 'list', '--porcelain').split('worktree ').length - 1).toBe(2);
+    const leases = readdirSync(join(root, '.open-autonomy', 'runner-state', 'workspaces'));
+    expect(leases.length).toBe(1);
+    if (!leaseId) leaseId = leases[0]!;
+    expect(leases[0]).toBe(leaseId);
+    const lease = JSON.parse(readFileSync(join(root, '.open-autonomy', 'runner-state', 'workspaces', leaseId), 'utf8'));
+    expect(lease.state).toBe('active'); expect(lease.sessionId).toBe(tick === 2 ? 'terminal-2' : 'terminal-1');
+  }
+  expect(calls(root).filter(call => call.command === 'launch')).toHaveLength(1);
+  expect(calls(root).filter(call => call.command === 'continue')).toHaveLength(1);
 });

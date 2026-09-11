@@ -1,4 +1,4 @@
-export interface WorkspaceIntent {schema: string; id: string; agent: string; branch: string; worktree: string; createdAt: string; state: string;}
+export interface WorkspaceIntent {schema: string; id: string; agent: string; branch: string; worktree: string; createdAt: string; state: string; sessionId?: string;}
 export function workspaceRecords(root: string): Array<{file:string;category:string;lease:WorkspaceIntent|null}>;
 export function workspaceLock(root: string, target: string): () => void;
 export function prepareWorkspace(root: string, worktree: string, agent: string, branch: string): WorkspaceIntent;
