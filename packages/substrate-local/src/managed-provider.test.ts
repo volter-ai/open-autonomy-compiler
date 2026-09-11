@@ -94,6 +94,8 @@ describe('managed virtual-tmux provider ownership', () => {
       mkdirSync(join(dir, 'scheduler'), { recursive: true });
       mkdirSync(join(dir, 'scripts'), { recursive: true });
       writeFileSync(join(dir, 'scheduler', 'run.mjs'), out.generated['scheduler/run.mjs']);
+      mkdirSync(join(dir, 'scripts'), { recursive: true });
+      writeFileSync(join(dir, 'scripts', 'workspace-lifecycle.mjs'), out.generated['scripts/workspace-lifecycle.mjs']!);
       const schedule = JSON.parse(out.generated['scheduler/schedule.json']);
       schedule.jobs[0].command = 'node scripts/job.mjs';
       writeFileSync(join(dir, 'scheduler', 'schedule.json'), `${JSON.stringify(schedule)}\n`);

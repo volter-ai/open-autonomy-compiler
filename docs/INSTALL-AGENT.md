@@ -507,8 +507,11 @@ Phase 4 proves *one* merge. For the loop to actually run a backlog over days, se
 - **Idle spend.** Even with an empty board the PM wakes every tick (`*/15` → ~96 sessions/day) and bills your
   model provider. Widen `scheduler/schedule.json` `intervalSeconds` or stop the loop when the backlog is
   drained.
-- **Housekeeping the loop does NOT do for you (yet):** merged-issue worktrees under `.worktrees/agent/issue-*`
-  are not auto-pruned — `git worktree prune && rm -rf .worktrees/agent-issue-*` periodically.
+- **Workspace retirement is explicit.** Inspect `bun scripts/runner.ts workspaces`, retire the task’s
+  terminal and all app/World consumers, then run `bun scripts/runner.ts workspace-release <lease-id>
+  --head <exact-commit> --consumers-retired`. The loop removes only released, clean checkout generations
+  after every peer and effect finishes; it preserves the branch and exact commit. Legacy and interrupted
+  ownership remains for review. Never delete a worktree merely because its directory is old.
 
 ### Re-running / repairing the install (it is only partly idempotent)
 

@@ -276,7 +276,8 @@ afterEach(() => {
 function scaffold(): { dir: string; worktree: string; markerPath: string; sentinel: string } {
   const dir = mkdtempSync(join(tmpdir(), 'oa-lifecycle-'));
   tmps.push(dir);
-  const loop = compileLocal(ghLocalIr).generated['scheduler/run.mjs'];
+  const out = compileLocal(ghLocalIr);
+  const loop = out.generated['scheduler/run.mjs'];
   mkdirSync(join(dir, 'scheduler'), { recursive: true });
   mkdirSync(join(dir, 'scripts'), { recursive: true });
   const effectsDir = join(dir, '.open-autonomy', 'runner-state', 'effects');
@@ -284,6 +285,7 @@ function scaffold(): { dir: string; worktree: string; markerPath: string; sentin
   const worktree = join(dir, '.worktrees', 'agent-issue-7');
   mkdirSync(worktree, { recursive: true });
   writeFileSync(join(dir, 'scheduler', 'run.mjs'), loop);
+  writeFileSync(join(dir, 'scripts', 'workspace-lifecycle.mjs'), out.generated['scripts/workspace-lifecycle.mjs']!);
   writeFileSync(join(dir, 'scheduler', 'schedule.json'), JSON.stringify({ intervalSeconds: 1, env: {}, scripts: [] }));
   // Stub runner backend: reapIdle is a no-op; list() reports as LIVE only the ids in STUB_LIVE_IDS.
   writeFileSync(
@@ -302,7 +304,7 @@ function scaffold(): { dir: string; worktree: string; markerPath: string; sentin
   spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
   spawnSync('git', ['config', 'user.email', 'lifecycle@example.invalid'], { cwd: dir });
   spawnSync('git', ['config', 'user.name', 'lifecycle-test'], { cwd: dir });
-  spawnSync('git', ['add', 'scheduler/run.mjs', 'scheduler/schedule.json', 'scripts/autonomy-runner.mjs', 'scripts/effect.mjs'], { cwd: dir });
+  spawnSync('git', ['add', 'scheduler/run.mjs', 'scheduler/schedule.json', 'scripts/autonomy-runner.mjs', 'scripts/effect.mjs', 'scripts/workspace-lifecycle.mjs'], { cwd: dir });
   spawnSync('git', ['commit', '-q', '-m', 'accepted test control'], { cwd: dir });
   const controlSha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).stdout.trim();
   writeFileSync(join(dir, '.open-autonomy', 'runner-state', 'control-generation.json'), JSON.stringify({

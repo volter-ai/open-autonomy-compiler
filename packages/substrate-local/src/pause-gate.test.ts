@@ -357,6 +357,8 @@ describe('the emitted scripts/runner.ts — the human route is EXEMPT from the p
       writeFileSync(join(dir, '.open-autonomy', 'autonomy.yml'), out.generated['.open-autonomy/autonomy.yml']);
       writeFileSync(join(dir, '.open-autonomy', 'autonomy.json'), out.generated['.open-autonomy/autonomy.json']);
       writeFileSync(join(dir, 'scripts', 'runner.ts'), out.generated['scripts/runner.ts']);
+      mkdirSync(join(dir, 'scripts'), { recursive: true });
+      writeFileSync(join(dir, 'scripts', 'workspace-lifecycle.mjs'), out.generated['scripts/workspace-lifecycle.mjs']!);
       // The marker is present (paused) — the human route must not consult it at all.
       writeFileSync(join(dir, '.open-autonomy', 'paused'), out.generated['.open-autonomy/paused'] ?? 'PAUSED\n');
 

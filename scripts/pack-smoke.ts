@@ -105,6 +105,7 @@ const requiredEntries = [
   'package/dist/backend.mjs',
   'package/dist/managed-provider.mjs',
   'package/dist/runner-frontend.ts',
+  'package/dist/workspace-lifecycle.mjs',
   'package/dist/control-backend.mjs',
   ...bundledProfiles.map((p) => `package/profiles/${p}/ir.yml`),
   // npm strips a file literally named `.gitignore` from every package — self-driving carries it as the

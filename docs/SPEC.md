@@ -271,6 +271,18 @@ form from a capability, role name, or work item, and injects no code-host identi
 repo or PR resolves it through its own code-host tool. Thus `execution.workspace`, branch assignment, and
 proposal publication remain three distinct contracts.
 
+Local workspace ownership is recorded before creation and retained through uncertain launch.
+A missing provider listing or an idle turn does not release a workspace. The supervisor
+uses `runner.ts workspace-release <lease-id> --head <commit> --consumers-retired` after
+retiring every consumer; this records release of that exact checkout generation and HEAD.
+The cleanup path requires every peer lease to release, completed effects, clean state,
+and matching Git identity. It preserves the exact commit and branch before ordinary Git
+worktree removal. Legacy, malformed, interrupted and quarantined ownership stays visible
+and fences cleanup; `runner.ts workspaces` reports it for owner recovery. A crashed
+lock carries PID, process start identity and nonce; after the owner exits,
+`runner.ts workspace-unlock <path> --nonce <recorded-nonce>` explicitly recovers it.
+An interrupted unlock itself remains for manual inspection.
+
 **`prelaunch` is a methodology-free pre-spawn hook, not a lifecycle stage.** An agent may declare an opaque
 `prelaunch: <shell command>` (`IRAgent.prelaunch`, `packages/core/src/ir.ts`). Where realized, the runner
 executes it in the session's own cwd — the worktree it is about to be launched into (or `process.cwd()` for
