@@ -90,6 +90,7 @@ if (import.meta.main) {
   const agentName = env.AGENT_NAME || 'agent';
   const runId = env.GITHUB_RUN_ID || '0';
   const rid = `ir-${agentName}-${runId}`;
+  const completionId = (env.AUTONOMY_SESSION_ID || runId).trim();
   const reviewWorkflow = (env.REVIEW_WORKFLOW ?? '').trim();
   const reviewAgent = (env.REVIEW_AGENT ?? '').trim();
   const trustedRunner = (env.AUTONOMY_TRUSTED_RUNNER ?? 'scripts/runner.ts').trim();
@@ -133,7 +134,14 @@ if (import.meta.main) {
 
   // Closing keyword in the COMMIT (squash-merge carries it reliably; a PR-body keyword alone is dropped when
   // the repo squashes from the commit message) — only when the subject is an issue number.
-  const commitArgs = ['commit', '--allow-empty', '-m', `agent: ${rid}`];
+  const attestation = [
+    'Open-Autonomy-Proposal: v1',
+    `Open-Autonomy-Branch: ${branch}`,
+    `Open-Autonomy-Agent: ${agentName}`,
+    `Open-Autonomy-Session: ${completionId}`,
+    `Open-Autonomy-Subject: ${ref || 'autonomous'}`,
+  ].join('\n');
+  const commitArgs = ['commit', '--allow-empty', '-m', `agent: ${rid}`, '-m', attestation];
   if (isNumericRef) commitArgs.push('-m', `Closes #${ref}`);
   sh('git', commitArgs);
   sh('git', ['push', '--force', 'origin', branch]);

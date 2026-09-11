@@ -200,3 +200,31 @@ describe('emitted scheduler hard controls', () => {
     }
   });
 });
+
+
+test('cadence receipts precede spawn and survive restart; corrupt receipts refuse launch', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'oa-cadence-restart-'));
+  let child: ReturnType<typeof spawn> | undefined;
+  const stop = async () => { if (child && child.exitCode === null && child.signalCode === null) { const ended = new Promise<void>(resolve => child!.once('exit', () => resolve())); child.kill('SIGTERM'); await ended; } };
+  const waitFor = async (predicate: () => boolean) => { const until = Date.now() + 8000; while (!predicate() && Date.now() < until) await Bun.sleep(25); expect(predicate()).toBe(true); };
+  try {
+    const out = compileLocal(ir);
+    for (const name of ['scheduler/run.mjs', 'scripts/workspace-lifecycle.mjs']) {
+      mkdirSync(join(dir, name.split('/')[0]!), { recursive: true }); writeFileSync(join(dir, name), out.generated[name]!);
+    }
+    writeFileSync(join(dir, 'job.mjs'), "import {readFileSync,appendFileSync} from 'node:fs';const s=JSON.parse(readFileSync('state.json','utf8'));if(s.jobs.cadence.outcome!=='started')throw Error('no pre-spawn receipt');appendFileSync('counter','tick\\n');");
+    writeFileSync(join(dir, 'schedule.json'), JSON.stringify({jobs:[
+      {name:'cadence',command:'node job.mjs',intervalSeconds:60,retrySeconds:60},
+      {name:'heartbeat',command:'echo beat >> heartbeat',intervalSeconds:1,retrySeconds:1},
+    ]}));
+    const env = {...process.env,AUTONOMY_SCHEDULE:join(dir,'schedule.json'),AUTONOMY_SCHEDULE_STATE:join(dir,'state.json'),AUTONOMY_REAP_POLL_MS:'1000'};
+    const count = (name: string) => existsSync(join(dir,name)) ? readFileSync(join(dir,name),'utf8').trim().split('\n').length : 0;
+    child=spawn('node',['scheduler/run.mjs'],{cwd:dir,env,stdio:'ignore'});
+    await waitFor(()=>count('counter')===1&&count('heartbeat')===1);await stop();
+    child=spawn('node',['scheduler/run.mjs'],{cwd:dir,env,stdio:'ignore'});
+    await waitFor(()=>count('heartbeat')>=2);await stop();expect(count('counter')).toBe(1);
+    writeFileSync(join(dir,'state.json'),'{bad');
+    const bad=spawnSync('node',['scheduler/run.mjs'],{cwd:dir,env,encoding:'utf8'});
+    expect(bad.status).not.toBe(0);expect(bad.stderr).toContain('unreadable cadence state');expect(count('counter')).toBe(1);
+  } finally { await stop(); rmSync(dir,{recursive:true,force:true}); }
+});

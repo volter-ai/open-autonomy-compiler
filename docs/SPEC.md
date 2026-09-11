@@ -1014,3 +1014,7 @@ The `maintainer` actor ships as a `dispatch` `kind: human` actor: the orchestrat
 `human-required` state off a task and `launch`es the maintainer — the same portable seam on every
 substrate (the `human` realization — worklist + escalation + durable-pause — is the new build). No
 github-label-watching trigger is involved; task state is a property the orchestrator reads, not an event.
+
+### Durable scheduled workspace identity
+
+A durable singleton owns one workspace across ticks. Resolve its canonical workspace before allocating a checkout; active skips and continuations reuse the original generation and lease. Unknown launches, missing generation ownership and ambiguous legacy conversations refuse a replacement. Serialize singleton ticks before workspace selection. Scheduler deadlines are durable before spawning a job, so restart observes the retry/interval deadline rather than duplicating work. Proposal commits carry exact branch, agent and session completion attestations for adopter reconciliation.
