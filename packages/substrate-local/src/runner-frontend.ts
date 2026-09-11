@@ -18,6 +18,7 @@
 //
 // Emitted verbatim by compileLocal as scripts/runner.ts so an agent's `import './runner.js'` resolves.
 import { spawnSync } from 'node:child_process';
+import { workspaceLock, prepareWorkspace, bindWorkspace, discardUnlaunchedWorkspace, releaseWorkspace, workspaceRecords, recoverWorkspaceLock } from './workspace-lifecycle.mjs';
 import {
   appendFileSync,
   chmodSync,
@@ -156,26 +157,6 @@ interface EffectMarker {
   controlSha?: string;
 }
 
-interface WorkspaceLease {
-  schema: 'open-autonomy.workspace-lease.v1';
-  id: string;
-  agent: string;
-  branch: string;
-  worktree: string;
-  createdAt: string;
-  controlSha?: string;
-}
-
-function recordWorkspaceLease(lease: Omit<WorkspaceLease, 'schema' | 'createdAt'>): void {
-  const dir = controlPath('.open-autonomy/runner-state/workspaces');
-  mkdirSync(dir, { recursive: true });
-  const file = join(dir, `${lease.id.replace(/[^0-9A-Za-z._-]/g, '-')}.json`);
-  writeFileSync(file, `${JSON.stringify({
-    schema: 'open-autonomy.workspace-lease.v1',
-    ...lease,
-    createdAt: new Date().toISOString(),
-  } satisfies WorkspaceLease, null, 2)}\n`);
-}
 
 interface ControlGeneration {
   schema: 'open-autonomy.control-generation.v1';
@@ -233,7 +214,7 @@ function activeControlGeneration(codeHost: string): ControlGeneration | null {
       );
     }
   }
-  const authorityPaths = ['scripts/runner.ts', '.open-autonomy/autonomy.json', '.open-autonomy/autonomy.yml'];
+  const authorityPaths = ['scripts/runner.ts', 'scripts/workspace-lifecycle.mjs', '.open-autonomy/autonomy.json', '.open-autonomy/autonomy.yml'];
   const dirty = git(['diff', '--quiet', generation.sha, '--', ...authorityPaths], installRoot());
   if (dirty.status !== 0) {
     throw new ControlGenerationError(
@@ -798,8 +779,13 @@ export async function launch(agent: string, params: LaunchParams = {}): Promise<
   // the base ref it just created the worktree at ('HEAD' | 'origin/<trunk>'). Capture that so the pre-check
   // below can tear down ONLY a worktree THIS launch created — never a pre-existing one (which may be a legit
   // in-progress rework worktree a reviewer sent back).
+  const unlockWorkspace = worktree ? workspaceLock(installRoot(), worktree) : () => {};
+  try {
+  let workspaceLease = worktree ? prepareWorkspace(installRoot(), worktree, agent, branch) : undefined;
+  const createdBranchThisCall = !!branch && git(['show-ref', '--verify', `refs/heads/${branch}`]).status !== 0;
   const worktreeStatus = branch ? ensureWorktree(branch, worktree, codeHost, generation?.sha) : '';
   const createdWorktreeThisCall = !!branch && worktreeStatus !== 'existing';
+  if (workspaceLease) workspaceLease = bindWorkspace(installRoot(), workspaceLease, '');
 
   // OA-08 pre-check: does this launch's skill invocation resolve to the SAME doctrine selected by the
   // control checkout? Existence applies with or without a branch. Content parity applies to anonymous
@@ -828,10 +814,7 @@ export async function launch(agent: string, params: LaunchParams = {}): Promise<
     // the now-fixed trunk and resolves. Scoped to `createdWorktreeThisCall` so a pre-existing (rework)
     // worktree is never destroyed. Paths are constructed (worktreePathFor → resolve; a validated non-empty
     // branch) — never an unguarded removal of an empty variable.
-    if (createdWorktreeThisCall && worktree) {
-      git(['worktree', 'remove', '--force', worktree]);
-      git(['branch', '-D', branch]);
-    }
+    if (workspaceLease) discardUnlaunchedWorkspace(installRoot(), workspaceLease, createdWorktreeThisCall, createdBranchThisCall);
     const message = missing
       ? `[runner] launch refused: ${agent}'s skill "${behavior}" is missing at\n` +
         `  ${skillPath} — the session would die at launch ("Unknown command: /${behavior}").\n` +
@@ -890,7 +873,7 @@ export async function launch(agent: string, params: LaunchParams = {}): Promise<
       // Every session using an isolated worktree owns a lease, including a reviewer joining a branch
       // another session created. Cleanup groups leases by worktree and waits for all of them.
       recordSessionGeneration(id, agent, generation?.sha ?? '');
-      recordWorkspaceLease({ id, agent, branch, worktree, ...(generation ? { controlSha: generation.sha } : {}) });
+      // Keep the launching intent until the effect marker and session binding are durable.
       if (explicitBranch && codeHost === 'github') {
         const ghBox = manifestGhActionsBox();
         recordPostSessionEffect({
@@ -925,8 +908,12 @@ export async function launch(agent: string, params: LaunchParams = {}): Promise<
           },
         });
       }
+      if (workspaceLease) {
+        workspaceLease = bindWorkspace(installRoot(), workspaceLease, id);
+        console.log(`[runner] workspace lease ${workspaceLease.id}; release explicitly after retiring consumers`);
+      }
     } else {
-      console.error(`[runner] ${agent}: launched but no terminalId in output; workspace cleanup cannot be tracked`);
+      console.error(`[runner] ${agent}: no terminalId; retained unresolved workspace lease ${workspaceLease?.id}`);
     }
     return r.status ?? 1;
   }
@@ -936,6 +923,7 @@ export async function launch(agent: string, params: LaunchParams = {}): Promise<
   const id = terminalIdFromLaunch(r.stdout ?? '');
   if (id) recordSessionGeneration(id, agent, generation?.sha ?? '');
   return r.status ?? 1;
+  } finally { unlockWorkspace(); }
 }
 
 /** List an agent's in-flight work (agent:list): live termfleet sessions PLUS pending post-session effects
@@ -1012,6 +1000,15 @@ function parseFlags(args: string[]): LaunchParams {
 
 export async function runCli(argv: string[]): Promise<number> {
   const [cmd, agent, ...rest] = argv;
+  if (cmd === 'workspaces') { console.log(JSON.stringify(workspaceRecords(installRoot()), null, 2)); return 0; }
+  if (cmd === 'workspace-unlock' && agent) {
+    const flags = parseFlags(rest);recoverWorkspaceLock(installRoot(), agent, String(flags.nonce ?? ''));return 0;
+  }
+  if (cmd === 'workspace-release' && agent) {
+    const flags = parseFlags(rest);
+    releaseWorkspace(installRoot(), agent, String(flags.head ?? ''), flags['consumers-retired'] === 'true');
+    return 0;
+  }
   if (!cmd || !agent || agent.startsWith('--')) {
     console.error('usage: runner.ts <launch|list|get|update|cancel|worktree-probe> <agent|id|branch> [--ref <work-item>] [--workspace <shared|isolated>] [--fence <path>] [--key value ...]');
     return 2;

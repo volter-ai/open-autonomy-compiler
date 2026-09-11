@@ -69,6 +69,8 @@ function scaffold(providerUrl?: string, opts: { stubAgent?: boolean } = {}): str
   const dir = mkdtempSync(join(tmpdir(), 'oa-provider-pin-'));
   mkdirSync(join(dir, 'scheduler'), { recursive: true });
   writeFileSync(join(dir, 'scheduler', 'run.mjs'), out.generated['scheduler/run.mjs']!);
+  mkdirSync(join(dir, 'scripts'), { recursive: true });
+  writeFileSync(join(dir, 'scripts', 'workspace-lifecycle.mjs'), out.generated['scripts/workspace-lifecycle.mjs']!);
   writeFileSync(join(dir, 'scheduler', 'schedule.json'), out.generated['scheduler/schedule.json']!);
   installMinimalTermfleet(dir);
   if (opts.stubAgent) {

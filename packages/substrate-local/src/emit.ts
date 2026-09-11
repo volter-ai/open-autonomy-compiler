@@ -191,6 +191,7 @@ export function cronToSeconds(cron: string): number {
 // workflow context to retire an exact session after its outcome is durably accounted for. `--once` fires a
 // single tick and exits.
 const LOOP_DRIVER = `#!/usr/bin/env node
+import { reconcileReleasedWorkspaces, workspaceEffectReady } from '../scripts/workspace-lifecycle.mjs';
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -758,7 +759,8 @@ async function reconcilePendingEffects(runner) {
     const path = join(EFFECTS_DIR, file);
     let marker;
     try { marker = JSON.parse(readFileSync(path, 'utf8')); } catch { parkLegacyEffect(path, file, 'marker is not valid JSON'); continue; }
-    if (live.has(marker.id)) continue; // session still running -> its effect runs after it finishes
+    if (live.has(marker.id)) continue;
+    if (!workspaceEffectReady(join(here, '..'), marker.worktree, live)) continue; // session still running -> its effect runs after it finishes
     // A fresh co-located workspace lease means the provider may simply not list the new terminal yet.
     // Old effect markers without leases retain their historical immediate reconciliation behavior.
     try {
@@ -778,7 +780,7 @@ async function reconcilePendingEffects(runner) {
     }
     try {
       verifyControlGeneration(marker.controlSha);
-      verifyControlPaths(marker.controlSha, [marker.effect, 'scripts/runner.ts', '.open-autonomy/autonomy.json', '.open-autonomy/autonomy.yml']);
+      verifyControlPaths(marker.controlSha, [marker.effect, 'scripts/runner.ts', 'scripts/workspace-lifecycle.mjs', '.open-autonomy/autonomy.json', '.open-autonomy/autonomy.yml']);
     }
     catch (error) { console.error(\`[loop] effect \${file} refused: \${error?.message ?? error}\`); continue; }
     const effect = resolve(controlRoot, marker.effect);
@@ -808,57 +810,7 @@ function parkLegacyEffect(path, file, reason) {
   writeFileSync(parked + '.recovery.txt', reason + '.\\nInspect the marker, then recover explicitly:\\n' + command + '\\n');
   console.error('[loop] parked effect ' + file + ': ' + reason + '. Inspect it, then run: ' + command);
 }
-async function reconcileWorkspaceLeases(runner) {
-  let files = [];
-  try { files = readdirSync(WORKSPACES_DIR).filter((f) => f.endsWith('.json')); } catch { return; }
-  let live;
-  try { live = new Set((await runner.list()).map((s) => s.id)); } catch { return; }
-  const records = files.flatMap((file) => {
-    const path = join(WORKSPACES_DIR, file);
-    try { return [{ file, path, lease: JSON.parse(readFileSync(path, 'utf8')) }]; } catch { return []; }
-  });
-  const handled = new Set();
-  for (const record of records) {
-    const { lease } = record;
-    if (handled.has(lease.worktree)) continue;
-    handled.add(lease.worktree);
-    const peers = records.filter((candidate) => candidate.lease.worktree === lease.worktree);
-    const livePeers = peers.filter((peer) => live.has(peer.lease.id));
-    for (const peer of livePeers) {
-      if (peer.lease.observedLiveAt) continue;
-      peer.lease.observedLiveAt = new Date().toISOString();
-      try { writeFileSync(peer.path, JSON.stringify(peer.lease, null, 2) + '\\n'); } catch {}
-    }
-    if (livePeers.length || peers.some((peer) => existsSync(join(EFFECTS_DIR, peer.file)))) continue;
-    const now = Date.now();
-    const bootstrapping = peers.some((peer) => {
-      if (peer.lease.observedLiveAt) return false;
-      const createdAt = Date.parse(peer.lease.createdAt);
-      return Number.isFinite(createdAt) && now - createdAt < WORKSPACE_LEASE_BOOTSTRAP_GRACE_MS;
-    });
-    if (bootstrapping) continue;
-    if (!existsSync(lease.worktree)) { for (const peer of peers) try { unlinkSync(peer.path); } catch {} continue; }
-    const status = spawnSync('git', ['status', '--porcelain'], { cwd: lease.worktree, encoding: 'utf8' });
-    if (status.status !== 0 || status.error || (status.stdout || '').trim()) {
-      mkdirSync(WORKSPACE_QUARANTINE_DIR, { recursive: true });
-      for (const peer of peers) {
-        writeFileSync(join(WORKSPACE_QUARANTINE_DIR, peer.file), JSON.stringify({
-          ...peer.lease,
-          quarantinedAt: new Date().toISOString(),
-          reason: status.status !== 0 || status.error ? 'git status failed' : 'worktree has uncommitted changes',
-        }, null, 2) + '\\n');
-        try { unlinkSync(peer.path); } catch {}
-      }
-      console.error(\`[loop] retained dirty workspace for \${lease.agent} (\${lease.id}): \${lease.worktree}\`);
-      continue;
-    }
-    const removed = spawnSync('git', ['worktree', 'remove', lease.worktree], { cwd: join(here, '..'), encoding: 'utf8' });
-    if (removed.status !== 0 || removed.error) continue;
-    spawnSync('git', ['branch', '-D', lease.branch], { cwd: join(here, '..'), encoding: 'utf8' });
-    for (const peer of peers) try { unlinkSync(peer.path); } catch {}
-    console.log(\`[loop] cleaned workspace for \${lease.agent} (\${lease.id})\`);
-  }
-}
+async function reconcileWorkspaceLeases(runner) { await reconcileReleasedWorkspaces(join(here, '..'), runner); }
 // Report fence transitions once per marker state change. Job eligibility itself remains in fireJobs, so
 // one fenced group never suppresses unrelated work and a marker change takes effect on the next heartbeat.
 let lastBlockedFences = new Set();
@@ -1165,6 +1117,7 @@ export function compileLocal(
   // Local execution layer: the runner OVERRIDES the github runner.ts from the runtime — launches go to
   // termfleet, not `gh workflow run`.
   generated['scripts/runner.ts'] = runnerFrontendSrc();
+  generated['scripts/workspace-lifecycle.mjs'] = readSiblingOrThrow(() => readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'workspace-lifecycle.mjs'), 'utf8'), 'workspace-lifecycle.mjs');
   generated['scripts/run-agent.mjs'] = RUN_AGENT_DRIVER;
   generated['scripts/autonomy-runner.mjs'] = runnerBackendSrc();
   // The single source of the runner's defaults (harness, cli, provider url, timeout). The vendored .mjs

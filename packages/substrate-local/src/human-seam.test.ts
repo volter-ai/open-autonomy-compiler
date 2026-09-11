@@ -67,6 +67,8 @@ describe('the emitted scripts/runner.ts — the human route (a REAL subprocess a
     writeFileSync(join(dir, '.open-autonomy', 'autonomy.yml'), out.generated['.open-autonomy/autonomy.yml']);
     writeFileSync(join(dir, '.open-autonomy', 'autonomy.json'), out.generated['.open-autonomy/autonomy.json']);
     writeFileSync(join(dir, 'scripts', 'runner.ts'), out.generated['scripts/runner.ts']);
+    mkdirSync(join(dir, 'scripts'), { recursive: true });
+    writeFileSync(join(dir, 'scripts', 'workspace-lifecycle.mjs'), out.generated['scripts/workspace-lifecycle.mjs']!);
     return dir;
   }
   const runner = (dir: string, args: string[], env?: Record<string, string>) =>

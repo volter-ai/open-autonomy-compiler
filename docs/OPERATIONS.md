@@ -732,17 +732,23 @@ ps -p "$OA_PROVIDER_PID" -o command= | grep -F -- "--prefix $(node -p "JSON.pars
 gh repo edit <owner>/<repo> --enable-auto-merge=false
 gh api -X DELETE "repos/<owner>/<repo>/branches/<default-branch>/protection"
 
-# 3. remove the harness commit + disposable worktrees (archive the provider runtime separately if desired)
-git revert --no-edit <install-commit>   # or git rm the overlay paths; then push if you're on the GitHub code host
-git worktree prune ; rm -rf .worktrees .open-autonomy/runner-state
+# 3. inspect workspace ownership before removing the harness
+bun scripts/runner.ts workspaces
+# After retiring ALL consumers, release each completed workspace at its exact HEAD:
+bun scripts/runner.ts workspace-release <lease-id> --head <commit> --consumers-retired
+# Preserve unresolved worktrees and runner-state for owner recovery.
+git revert --no-edit <install-commit>   # then push if you are on the GitHub code host
 
 # 4. (optional) uninstall the runner deps
 npm remove termfleet ztrack
 ```
 
-Step 3's `git worktree prune` + removing `.worktrees` also clears the merged-issue worktrees the loop
-leaves behind under `.worktrees/agent/issue-*` — the running loop does not auto-prune these on its own, so
-do this periodically even short of a full teardown.
+During ordinary operation the loop removes only explicitly released, clean workspace generations
+after all peers and effects retire. Release preserves the branch and exact commit; it does not infer
+completion from session disappearance. After stopping the loop, review any remaining checkout before
+using ordinary `git worktree remove`; keep its commit reference and ownership receipt. `git worktree
+prune` only cleans stale Git metadata and is not permission to delete a directory. Never periodically
+delete `.worktrees` or runner-state by age.
 
 ### Fact-to-step completeness map
 

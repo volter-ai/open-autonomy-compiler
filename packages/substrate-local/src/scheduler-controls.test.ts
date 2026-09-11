@@ -20,10 +20,13 @@ describe('emitted scheduler hard controls', () => {
   test('maxConcurrent denies a new agent launch while a scheduled agent session is active', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oa-scheduler-controls-'));
     try {
-      const run = compileLocal(ir).generated['scheduler/run.mjs'];
+      const out = compileLocal(ir);
+      const run = out.generated['scheduler/run.mjs'];
       mkdirSync(join(dir, 'scheduler'), { recursive: true });
       mkdirSync(join(dir, 'scripts'), { recursive: true });
       writeFileSync(join(dir, 'scheduler', 'run.mjs'), run);
+      mkdirSync(join(dir, 'scripts'), { recursive: true });
+      writeFileSync(join(dir, 'scripts', 'workspace-lifecycle.mjs'), out.generated['scripts/workspace-lifecycle.mjs']!);
       writeFileSync(join(dir, 'scripts', 'autonomy-runner.mjs'),
         `console.log(JSON.stringify([{id:'live',agent:'one',status:'running'}]));\n`);
       const sentinel = join(dir, 'launched');
@@ -48,10 +51,13 @@ describe('emitted scheduler hard controls', () => {
   test('maxConcurrent fails closed when session liveness cannot be established', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oa-scheduler-controls-'));
     try {
-      const run = compileLocal(ir).generated['scheduler/run.mjs'];
+      const out = compileLocal(ir);
+      const run = out.generated['scheduler/run.mjs'];
       mkdirSync(join(dir, 'scheduler'), { recursive: true });
       mkdirSync(join(dir, 'scripts'), { recursive: true });
       writeFileSync(join(dir, 'scheduler', 'run.mjs'), run);
+      mkdirSync(join(dir, 'scripts'), { recursive: true });
+      writeFileSync(join(dir, 'scripts', 'workspace-lifecycle.mjs'), out.generated['scripts/workspace-lifecycle.mjs']!);
       writeFileSync(join(dir, 'scripts', 'autonomy-runner.mjs'), `process.exit(1);\n`);
       const sentinel = join(dir, 'launched');
       writeFileSync(join(dir, 'scripts', 'launch.mjs'),
@@ -74,11 +80,14 @@ describe('emitted scheduler hard controls', () => {
   test('manual dispatch runs one declared job while preserving env, fences, and concurrency', () => {
     const dir = mkdtempSync(join(tmpdir(), 'oa-scheduler-dispatch-'));
     try {
-      const run = compileLocal(ir).generated['scheduler/run.mjs'];
+      const out = compileLocal(ir);
+      const run = out.generated['scheduler/run.mjs'];
       mkdirSync(join(dir, 'scheduler'), { recursive: true });
       mkdirSync(join(dir, 'scripts'), { recursive: true });
       mkdirSync(join(dir, '.open-autonomy'), { recursive: true });
       writeFileSync(join(dir, 'scheduler', 'run.mjs'), run);
+      mkdirSync(join(dir, 'scripts'), { recursive: true });
+      writeFileSync(join(dir, 'scripts', 'workspace-lifecycle.mjs'), out.generated['scripts/workspace-lifecycle.mjs']!);
       const one = join(dir, 'one.json');
       const two = join(dir, 'two.json');
       writeFileSync(join(dir, 'scripts', 'one.mjs'), `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(one)}, 'ran');\n`);
@@ -115,11 +124,12 @@ describe('emitted scheduler hard controls', () => {
     }
   });
 
-  test('continuous reconciliation observes completion without calling the runner reaper', async () => {
+  test('continuous reconciliation retains legacy ownership without calling the runner reaper', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'oa-scheduler-lease-grace-'));
     let child;
     try {
-      const run = compileLocal(ir).generated['scheduler/run.mjs'];
+      const out = compileLocal(ir);
+      const run = out.generated['scheduler/run.mjs'];
       const leases = join(dir, '.open-autonomy', 'runner-state', 'workspaces');
       const worktree = join(dir, 'fresh-worktree');
       const fresh = join(leases, 'fresh.json');
@@ -128,17 +138,20 @@ describe('emitted scheduler hard controls', () => {
       const effectMarker = join(effects, 'fresh.json');
       const effectSentinel = join(dir, 'effect-ran');
       const liveMarker = join(dir, 'fresh-is-live');
+      const polls = join(dir, 'provider-polls');
       mkdirSync(join(dir, 'scheduler'), { recursive: true });
       mkdirSync(join(dir, 'scripts'), { recursive: true });
       mkdirSync(leases, { recursive: true });
       mkdirSync(effects, { recursive: true });
       mkdirSync(worktree);
       writeFileSync(join(dir, 'scheduler', 'run.mjs'), run);
+      mkdirSync(join(dir, 'scripts'), { recursive: true });
+      writeFileSync(join(dir, 'scripts', 'workspace-lifecycle.mjs'), out.generated['scripts/workspace-lifecycle.mjs']!);
       writeFileSync(join(dir, 'scheduler', 'schedule.json'), JSON.stringify({ jobs: [] }));
       writeFileSync(join(dir, 'scripts', 'autonomy-runner.mjs'), `
-        import { existsSync } from 'node:fs';
+        import { existsSync, appendFileSync } from 'node:fs';
         export class TermfleetRunner {
-          async list(){ return existsSync(${JSON.stringify(liveMarker)}) ? [{ id: 'fresh', agent: 'test', status: 'running' }] : []; }
+          async list(){ appendFileSync(${JSON.stringify(polls)}, 'poll\\n'); return existsSync(${JSON.stringify(liveMarker)}) ? [{ id: 'fresh', agent: 'test', status: 'running' }] : []; }
           async reapIdle(){ throw new Error('scheduler must not reap sessions'); }
         }
       `);
@@ -166,21 +179,21 @@ describe('emitted scheduler hard controls', () => {
         env: { ...process.env, AUTONOMY_REAP_POLL_MS: '1000', AUTONOMY_WORKSPACE_LEASE_GRACE_MS: '60000' },
         stdio: 'ignore',
       });
-      const deadline = Date.now() + 5000;
-      while (existsSync(stale) && Date.now() < deadline) await Bun.sleep(50);
-      expect(existsSync(stale)).toBe(false);
+      const waitForPoll = async (previous: number) => {
+        const deadline = Date.now() + 5000;
+        while ((!existsSync(polls) || readFileSync(polls, 'utf8').length <= previous) && Date.now() < deadline) await Bun.sleep(50);
+        expect(readFileSync(polls, 'utf8').length).toBeGreaterThan(previous);
+      };
+      await waitForPoll(0);
+      writeFileSync(liveMarker, 'live\n');
+      await waitForPoll(readFileSync(polls, 'utf8').length);
+      rmSync(liveMarker);
+      await waitForPoll(readFileSync(polls, 'utf8').length);
+      expect(existsSync(stale)).toBe(true);
       expect(existsSync(fresh)).toBe(true);
       expect(existsSync(effectMarker)).toBe(true);
       expect(existsSync(effectSentinel)).toBe(false);
-      writeFileSync(liveMarker, 'live\n');
-      const observedDeadline = Date.now() + 5000;
-      while (!JSON.parse(readFileSync(fresh, 'utf8')).observedLiveAt && Date.now() < observedDeadline) await Bun.sleep(50);
-      expect(JSON.parse(readFileSync(fresh, 'utf8')).observedLiveAt).toBeTruthy();
-      rmSync(liveMarker);
-      const effectDeadline = Date.now() + 5000;
-      while ((!existsSync(effectSentinel) || existsSync(effectMarker)) && Date.now() < effectDeadline) await Bun.sleep(50);
-      expect(existsSync(effectSentinel)).toBe(true);
-      expect(existsSync(effectMarker)).toBe(false);
+      expect(child.exitCode).toBe(null);
     } finally {
       if (child && child.exitCode === null) child.kill('SIGTERM');
       rmSync(dir, { recursive: true, force: true });

@@ -31,6 +31,8 @@ function scaffold(ir: AutonomyIR): string {
   const dir = mkdtempSync(join(tmpdir(), 'oa-termfleet-guard-'));
   mkdirSync(join(dir, 'scheduler'), { recursive: true });
   writeFileSync(join(dir, 'scheduler', 'run.mjs'), out.generated['scheduler/run.mjs']);
+  mkdirSync(join(dir, 'scripts'), { recursive: true });
+  writeFileSync(join(dir, 'scripts', 'workspace-lifecycle.mjs'), out.generated['scripts/workspace-lifecycle.mjs']!);
   writeFileSync(join(dir, 'scheduler', 'schedule.json'), out.generated['scheduler/schedule.json']);
   // A script-only schedule's script (scripts/sweep.ts) must exist for `bun scripts/sweep.ts` to at least
   // ATTEMPT to run (its own success/failure is irrelevant — this test only cares whether the termfleet

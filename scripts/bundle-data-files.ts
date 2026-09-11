@@ -16,6 +16,7 @@ export interface BundleDataFile {
 }
 
 export const BUNDLE_DATA_FILES: readonly BundleDataFile[] = [
+  { src: 'packages/substrate-local/src/workspace-lifecycle.mjs', dest: 'workspace-lifecycle.mjs' },
   { src: 'packages/substrate-local/src/backend.mjs', dest: 'backend.mjs' },
   { src: 'packages/substrate-local/src/managed-provider.mjs', dest: 'managed-provider.mjs' },
   { src: 'packages/substrate-local/src/runner-frontend.ts', dest: 'runner-frontend.ts' },
