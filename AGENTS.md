@@ -12,7 +12,7 @@ Operator commands (`/agent launch`, `/agent pause`, etc.) are maintainer-only (O
 Read these files before changing behavior:
 
 - `docs/ARCHITECTURE.md` for the system model and document map.
-- `docs/ROADMAP.md` for current direction.
+- `docs/ROADMAP.md`: this lane is dormant; its phase record is `docs/history/phase-record.md`.
 - `docs/LIVE_TESTING_STRATEGY.md` for how the live testbed proves every feature
   without fakery (setup, coverage, and the proctor playbook).
 - `docs/CONSTITUTION.md` for non-negotiable operating principles.

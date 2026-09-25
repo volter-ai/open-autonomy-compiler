@@ -50,7 +50,7 @@ fast (stronger than last-gen frontier), so fix the prompt/tool, never route arou
 | `docs/VISION.md` | Mission, merit criteria, the three pieces (Standards/Bench/Dogfood), horizons **H1–H5**. |
 | `docs/CONSTITUTION.md` | North star + the 7 operating rules (human-owned; amended, never auto-edited). |
 | `docs/PROJECT.md` | Charter (the mission-as-charter; shipped to installs). |
-| `docs/ROADMAP.md` | Tactical phases + proof gates (vs VISION = strategy). |
+| `docs/ROADMAP.md` | Dormant lane pointer; the phase record is `docs/history/phase-record.md` |
 | `docs/standards/*.md` | code / docs / tests / security standards agents must follow. |
 | `docs/OPERATIONS.md` | Operating OA: local quickstart · GitHub production rollout · release process (absorbed LOCAL-QUICKSTART / PUBLIC_AGENT_PRODUCTION_ROLLOUT / RELEASE). |
 | `docs/OSS_AGENT_RUNBOOK.md` | Field runbook: local checks, live smoke tests, operator commands. |
