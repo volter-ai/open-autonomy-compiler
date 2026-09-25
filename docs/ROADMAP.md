@@ -9,6 +9,12 @@ maintainer.
 This is the roadmap of the compiler lane, `volter-ai/open-autonomy-compiler`, which the model proxy and
 funding platform left for `open-autonomy-org/open-autonomy` (whose own `ROADMAP.md` is that project's).
 
+**This lane is dormant** (no code change since 2026-09-10). What follows is its phase record, not a current plan:
+its open phases predate the retirement of the merge-gate job and the CI-retry loop (see below), and open
+autonomy's live work is `open-autonomy-org/open-autonomy`'s roadmap. The July planning files at this
+repository's root (`ROADMAP-DISTILLED.md`, `BACKLOG.md`, `ADOPTION-FIXES-BACKLOG.md`) are older views this file
+supersedes.
+
 > **Reading this file:** the roadmap doubles as the historical phase record — later phases
 > supersede earlier ones, and early-phase prose is **not** the current architecture. Three
 > mechanisms described in older phases were later retired: the standalone **merge-gate job**
