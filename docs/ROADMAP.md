@@ -1,4 +1,4 @@
-# open-autonomy Roadmap
+# open-autonomy-compiler Roadmap
 
 This is the roadmap for turning the public agent workflow into a self-building
 OSS project. The current system can turn a trusted trigger into a bounded agent
@@ -6,9 +6,8 @@ run and a policy-gated PR. The next system should develop, review, and merge
 safe changes autonomously, escalating only when risk or ambiguity requires a
 maintainer.
 
-This is the single continuous roadmap for the canonical repo. Short plans,
-proof-gate notes, and expanded product direction should be folded into this
-file instead of creating parallel roadmap documents.
+This is the roadmap of the compiler lane, `volter-ai/open-autonomy-compiler`, which the model proxy and
+funding platform left for `open-autonomy-org/open-autonomy` (whose own `ROADMAP.md` is that project's).
 
 > **Reading this file:** the roadmap doubles as the historical phase record — later phases
 > supersede earlier ones, and early-phase prose is **not** the current architecture. Three
@@ -232,8 +231,8 @@ Done:
   `ci` + `agent-review` are green.
 - Bounded model proxy: OIDC-minted per-run tokens with spend/request caps (the budget guard); no
   provider/admin keys in any install.
-- Operator control plane (`/agent pause|resume|status|cancel|retry`); decision records + governance
-  report + the bench autonomy grader.
+- Operator control plane (`/agent pause|resume|status|cancel|retry`); governance report + the bench
+  autonomy grader. Decision records exist only as one run's static files; their shared writer is Phase 1.
 - Branch protection on the canonical repo; the model proxy trusts workflows by repo (OIDC).
 
 ## Next Implementation Roadmap
