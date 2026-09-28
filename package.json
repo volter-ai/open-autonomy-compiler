@@ -79,7 +79,7 @@
     "@types/node": "^24.13.2",
     "typescript": "^5.9.3",
     "yaml": "^2.9.0",
-    "ztrack": "1.4.0"
+    "ztrack": "1.5.10"
   },
   "overrides": {
     "@hono/node-server": "2.0.11",
